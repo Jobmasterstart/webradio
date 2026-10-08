@@ -5,12 +5,12 @@ app = Flask(__name__)
 
 # PLAYLIST REALI (I tuoi file di Dropbox configurati prima)
 PLAYLIST_MUSICA = [
-    "https://example.com",
-    "https://example.com"
+    "https://www.dropbox.com/scl/fi/9ex1f2mt4ir5cibz8szi8/4-Non-Blondes-What-s-Up.mp3?rlkey=s2whxrc03fof11q4pfdh8bwil&st=x9cvycbp&dl=1",
+    "https://www.dropbox.com/scl/fi/my25bypvp5ey2bn66e5c7/5-Star-The-Slightest-Touch.mp3?rlkey=n2yr62nf0873guqcvn2zay7z8&st=v66p1mgk&dl=1"
 ]
 
 PLAYLIST_SPOT = [
-    "https://example.com"
+    "https://www.dropbox.com/scl/fi/l4pu3iwmsuo3n9zct95xq/apertura-Sintonizzati-con-Roby-Key.mp3?rlkey=vy639im1xpbgtuvhbmdprtt3p&st=79x0vcir&dl=1"
 ]
 
 # PAGINA WEB CON UN VERO LETTORE AUDIO AUTOMATICO!
