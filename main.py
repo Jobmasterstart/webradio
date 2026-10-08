@@ -1,12 +1,10 @@
 import os
-from flask import Flask, Response
+from flask import Flask, Response, render_template_string
 
 app = Flask(__name__)
 
-# PALINSESTO INTELLIGENTE (Strutturato con logica IA)
-# Quando caricherai i tuoi file su Dropbox, ti basterà sostituire questi link!
+# PLAYLIST REALI (I tuoi file di Dropbox configurati prima)
 PLAYLIST_MUSICA = [
-    "https://example.com",
     "https://example.com",
     "https://example.com"
 ]
@@ -15,30 +13,39 @@ PLAYLIST_SPOT = [
     "https://example.com"
 ]
 
+# PAGINA WEB CON UN VERO LETTORE AUDIO AUTOMATICO!
+HTML_PLAYER = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>La mia Web Radio con IA</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #121212; color: white; padding-top: 50px; }
+        .player-container { background: #1e1e1e; display: inline-block; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        h1 { color: #bb86fc; font-size: 28px; }
+        p { color: #a0a0a0; margin-bottom: 25px; }
+        audio { width: 300px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="player-container">
+        <h1>📻 La mia Web Radio con IA</h1>
+        <p>In onda ora dal Cloud a PC spento</p>
+        <!-- Questo lettore fa suonare i tuoi file MP3 direttamente dal browser -->
+        <audio controls autoplay src="{{ primo_brano }}">
+            Il tuo browser non supporta il lettore audio.
+        </audio>
+    </div>
+</body>
+</html>
+"""
+
 @app.route('/')
 def home():
-    return "La mia Web Radio con IA e Render è Online!"
-
-@app.route('/playlist.m3u')
-def genera_playlist():
-    # L'IA genera il flusso: ogni 3 canzoni musicali inserisce tassativamente uno spot
-    m3u_content = "#EXTM3U\n"
-    canzoni_contate = 0
-    
-    # Crea una rotazione di prova di 24 brani
-    for i in range(24):
-        if canzoni_contate >= 3:
-            spot_url = PLAYLIST_SPOT[0]
-            m3u_content += f"#EXTINF:-1, Spot Radiofonico IA\n{spot_url}\n"
-            canzoni_contate = 0
-        else:
-            canzone_url = PLAYLIST_MUSICA[i % len(PLAYLIST_MUSICA)]
-            m3u_content += f"#EXTINF:-1, Canzone in onda\n{canzone_url}\n"
-            canzoni_contate += 1
-            
-    return Response(m3u_content, mimetype='audio/x-mpegurl')
+    # Prende il primo brano della lista per farlo suonare subito nel lettore della pagina web
+    primo_brano = PLAYLIST_MUSICA[0] if PLAYLIST_MUSICA else ""
+    return render_template_string(HTML_PLAYER, primo_brano=primo_brano)
 
 if __name__ == "__main__":
-    # Avvia il server web sulla porta richiesta da Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
