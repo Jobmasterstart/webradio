@@ -2,7 +2,8 @@ import os
 import random
 import requests
 import dropbox
-from flask import Flask, render_template_string, Response
+from flask import Flask, render_template_string, send_file
+import io
 
 app = Flask(__name__)
 
@@ -18,10 +19,10 @@ def chiedi_all_ai_cosa_trasmettere(canzoni):
     if not canzoni:
         return ""
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file da questo elenco: {canzoni}. Rispondi SOLO con il nome esatto del file, senza aggiungere commenti o saluti."
+    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file da questo elenco: {canzoni}. Rispondi SOLO con il nome esatto del file, senza aggiungere altro testo."
     try:
         payload = {"inputs": prompt, "parameters": {"max_new_tokens": 50}}
-        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=5)
+        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=4)
         output = response.json()
         if isinstance(output, list) and len(output) > 0 and "generated_text" in output:
             scelta = output["generated_text"].replace(prompt, "").strip()
@@ -36,23 +37,15 @@ def ottieni_file_dropbox():
     file_trovati = []
     try:
         dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        
-        # 1. Prova a leggere la cartella dell'applicazione (ROOT principale)
+        # Legge i file MP3 nella cartella principale o in /musica
         try:
             for entry in dbx.files_list_folder('').entries:
-                if entry.name.lower().endswith('.mp3'):
-                    file_trovati.append(entry.name)
-        except:
-            pass
-            
-        # 2. Prova a leggere anche la cartella sottostante chiamata /musica
+                if entry.name.lower().endswith('.mp3'): file_trovati.append(entry.name)
+        except: pass
         try:
             for entry in dbx.files_list_folder('/musica').entries:
-                if entry.name.lower().endswith('.mp3'):
-                    file_trovati.append('musica/' + entry.name)
-        except:
-            pass
-            
+                if entry.name.lower().endswith('.mp3'): file_trovati.append('musica/' + entry.name)
+        except: pass
         return file_trovati
     except:
         return []
@@ -67,20 +60,40 @@ def home():
         <style>
             body { background: #121212; color: white; font-family: sans-serif; text-align: center; padding-top: 100px; }
             .card { background: #1e1e1e; padding: 40px; display: inline-block; border-radius: 15px; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-            audio { margin-top: 20px; width: 320px; }
+            .btn-play { background: #25d366; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 30px; cursor: pointer; font-weight: bold; margin-top: 20px; transition: 0.2s; }
+            .btn-play:hover { background: #20ba59; }
+            audio { display: none; }
         </style>
     </head>
     <body>
         <div class="card">
             <h2>🎙️ Radio Fuori Onda Faenza</h2>
-            <p>Regia Automatica Cloud via IA</p>
-            <audio controls src="/stream_audio" id="player"></audio>
+            <p>Regia Cloud Continuativa via IA</p>
+            <button class="btn-play" id="playBtn" onclick="togglePlay()">▶️ ASCOLTA ORA</button>
+            <audio id="player" src="/stream_audio"></audio>
         </div>
         <script>
-            var audio = document.getElementById('player');
-            audio.onended = function() {
-                audio.src = "/stream_audio?cache=" + new Date().getTime();
-                audio.play();
+            var player = document.getElementById('player');
+            var btn = document.getElementById('playBtn');
+            
+            function togglePlay() {
+                if (player.paused) {
+                    player.load();
+                    player.play().then(() => {
+                        btn.innerText = "⏸️ IN PAUSA";
+                    }).catch(e => {
+                        console.log("Errore riproduzione:", e);
+                    });
+                } else {
+                    player.pause();
+                    btn.innerText = "▶️ ASCOLTA ORA";
+                }
+            }
+
+            player.onended = function() {
+                player.src = "/stream_audio?cache=" + new Date().getTime();
+                player.load();
+                player.play();
             };
         </script>
     </body>
@@ -90,13 +103,14 @@ def home():
 
 @app.route('/stream_audio')
 def stream_audio():
+    # Traccia audio di test sicura su internet (SoundHelix) per evitare il blocco della barra del tempo
+    fallback_url = "https://soundhelix.com"
+    
     file_disponibili = ottieni_file_dropbox()
     
-    # Se Dropbox è vuoto o scatta un errore, trasmetti un MP3 di test sicuro per sbloccare il player
     if not file_disponibili:
-        print("Dropbox vuoto. Trasmissione traccia di test.")
-        r = requests.get("https://soundhelix.com", stream=True)
-        return Response(r.iter_content(chunk_size=1024), mimetype="audio/mpeg")
+        r = requests.get(fallback_url)
+        return send_file(io.BytesIO(r.content), mimetype="audio/mpeg", as_attachment=False)
         
     file_scelto = chiedi_all_ai_cosa_trasmettere(file_disponibili)
     if not file_scelto:
@@ -106,12 +120,12 @@ def stream_audio():
         dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
         percorso = file_scelto if '/' in file_scelto else '/' + file_scelto
         
-        # Scarica l'audio dal server Render in tempo reale e passalo al browser come flusso diretto
+        # Scarica l'audio nel buffer del server e invialo con supporto nativo del browser
         metadata, res = dbx.files_download(path=percorso)
-        return Response(res.content, mimetype="audio/mpeg")
+        return send_file(io.BytesIO(res.content), mimetype="audio/mpeg", as_attachment=False)
     except:
-        r = requests.get("https://soundhelix.com", stream=True)
-        return Response(r.iter_content(chunk_size=1024), mimetype="audio/mpeg")
+        r = requests.get(fallback_url)
+        return send_file(io.BytesIO(r.content), mimetype="audio/mpeg", as_attachment=False)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
