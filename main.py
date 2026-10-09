@@ -14,19 +14,16 @@ HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
 HF_API_URL = "https://huggingface.co"
 
 def chiedi_all_ai_cosa_trasmettere(canzoni, spot):
-    """L'AI decide se trasmettere musica o pubblicità pescando dalle liste"""
     if not canzoni and not spot:
         return ""
-    
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file tra questi musicali: {canzoni} o questi spot: {spot}. Rispondi SOLO con il nome esatto del file scelto, senza aggiungere nient'altro."
+    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file tra questi musicali: {canzoni} o questi spot: {spot}. Rispondi SOLO con il nome esatto del file scelto."
     try:
         payload = {"inputs": prompt, "parameters": {"max_new_tokens": 50}}
-        response = requests.post(HF_API_URL, json=payload, headers=headers)
+        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=5)
         output = response.json()
-        if isinstance(output, list) and len(output) > 0 and "generated_text" in output[0]:
-            scelta = output[0]["generated_text"].replace(prompt, "").strip()
-            # Pulisce eventuali rimescolamenti dell'AI
+        if isinstance(output, list) and len(output) > 0 and "generated_text" in output:
+            scelta = output["generated_text"].replace(prompt, "").strip()
             for f in canzoni + spot:
                 if f in scelta:
                     return f
@@ -35,25 +32,31 @@ def chiedi_all_ai_cosa_trasmettere(canzoni, spot):
     return random.choice(canzoni) if canzoni else ""
 
 def ottieni_file_dropbox():
-    """Legge i file mp3 presenti nel tuo Dropbox"""
+    canzoni, spot = [], []
     try:
         dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        canzoni, spot = [], []
         
+        # Tentativo 1: Cerca le cartelle classiche nella ROOT principale
         try:
             for entry in dbx.files_list_folder('/musica').entries:
-                if entry.name.endswith('.mp3'): canzoni.append(entry.name)
-        except:
-            print("Cartella /musica non trovata o vuota")
-            
-        try:
+                if entry.name.endswith('.mp3'): canzoni.append('/musica/' + entry.name)
             for entry in dbx.files_list_folder('/spot').entries:
-                if entry.name.endswith('.mp3'): spot.append(entry.name)
+                if entry.name.endswith('.mp3'): spot.append('/spot/' + entry.name)
+            if canzoni: return canzoni, spot
         except:
-            print("Cartella /spot non trovata o vuota")
+            pass
+
+        # Tentativo 2: Se l'app è di tipo "App Folder", elenca direttamente i file nella radice dell'app
+        try:
+            for entry in dbx.files_list_folder('').entries:
+                if entry.name.endswith('.mp3'):
+                    canzoni.append('/' + entry.name)
+        except Exception as e:
+            print(f"Errore lettura radice Dropbox: {e}")
             
         return canzoni, spot
-    except:
+    except Exception as e:
+        print(f"Errore inizializzazione Dropbox: {e}")
         return [], []
 
 @app.route('/')
@@ -76,7 +79,6 @@ def home():
             <audio id="audioPlayer" controls src="/stream_audio"></audio>
         </div>
         <script>
-            // Quando il brano finisce, chiede automaticamente il successivo all'AI
             var player = document.getElementById('audioPlayer');
             player.onended = function() {
                 player.src = "/stream_audio?t=" + new Date().getTime();
@@ -90,21 +92,25 @@ def home():
 
 @app.route('/stream_audio')
 def stream_audio():
-    canzoni, spot = ottieni_file_dropbox()
-    file_scelto = chiedi_all_ai_cosa_trasmettere(canzoni, spot)
-    
+    # File musicale di emergenza esterno e sicuro per sbloccare la barra al 100%
     link_fallback = "https://soundhelix.com"
     
-    if not file_scelto:
+    canzoni, spot = ottieni_file_dropbox()
+    
+    if not canzoni:
+        print("Nessun file MP3 rilevato su Dropbox. Sblocco la barra inviando traccia di test.")
         return redirect(link_fallback)
+        
+    file_scelto = chiedi_all_ai_cosa_trasmettere(canzoni, spot)
+    if not file_scelto:
+        file_scelto = random.choice(canzoni)
         
     try:
         dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        cartella = "/spot/" if file_scelto in spot else "/musica/"
-        media_link = dbx.files_get_temporary_link(cartella + file_scelto)
+        media_link = dbx.files_get_temporary_link(file_scelto)
         return redirect(media_link.link)
     except Exception as e:
-        print(f"Errore Dropbox temporaneo: {e}")
+        print(f"Errore generazione link traccia: {e}")
         return redirect(link_fallback)
 
 if __name__ == '__main__':
