@@ -1,5 +1,6 @@
 import os
-import requests
+import urllib.request
+import urllib.parse
 from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
@@ -56,10 +57,11 @@ def crea_su_dropbox():
         "Content-Type": "application/octet-stream"
     }
     try:
-        r = requests.post(url, headers=headers, data=b"Radio attiva con successo")
-        if r.status_code == 200:
-            return jsonify({"status": "successo"})
-        return jsonify({"status": "errore", "dettaglio": r.text})
+        req = urllib.request.Request(url, data=b"Radio attiva con successo", headers=headers, method="POST")
+        with urllib.request.urlopen(req) as response:
+            if response.status == 200:
+                return jsonify({"status": "successo"})
+            return jsonify({"status": "errore", "dettaglio": f"Status code {response.status}"})
     except Exception as e:
         return jsonify({"status": "errore", "dettaglio": str(e)})
 
