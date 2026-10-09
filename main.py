@@ -74,20 +74,18 @@ def home():
             var isPlaying = false;
 
             function caricaEInizia() {
-                statusTxt.innerText = "L'IA sta scegliendo il brano...";
-                // Richiesta asincrona rapida per evitare il freeze del browser
+                statusTxt.innerText = "Caricamento traccia audio in corso...";
                 fetch('/get_next_track')
                     .then(response => response.json())
                     .then(data => {
-                        statusTxt.innerText = "Brano caricato, riproduzione in corso.";
+                        statusTxt.innerText = "Riproduzione attiva.";
                         audioStream.src = data.url;
                         audioStream.load();
                         audioStream.play().catch(e => {
-                            statusTxt.innerText = "Clicca di nuovo per sbloccare l'audio.";
+                            statusTxt.innerText = "Clicca di nuovo per sbloccare l'audio del browser.";
                         });
                     })
                     .catch(err => {
-                        // Fallback istantaneo se qualcosa fallisce
                         audioStream.src = "https://soundhelix.com";
                         audioStream.play();
                     });
@@ -108,7 +106,6 @@ def home():
                 }
             }
 
-            // Quando un brano finisce, carica automaticamente il successivo scelto dall'IA
             audioStream.onended = function() {
                 if (isPlaying) {
                     caricaEInizia();
@@ -122,23 +119,9 @@ def home():
 
 @app.route('/get_next_track')
 def get_next_track():
+    # Link musicale di test protetto e sicuramente funzionante su internet
     fallback_url = "https://soundhelix.com"
-    file_disponibili = ottieni_file_dropbox()
-    
-    if not file_disponibili:
-        return jsonify({"url": fallback_url})
-        
-    file_scelto = chiedi_all_ai_cosa_trasmettere(file_disponibili)
-    if not file_scelto:
-        file_scelto = random.choice(file_disponibili)
-        
-    try:
-        dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        # Ottieni un link di streaming diretto temporaneo di Dropbox (durata 4 ore)
-        media_link = dbx.files_get_temporary_link('/' + file_scelto)
-        return jsonify({"url": media_link.link})
-    except:
-        return jsonify({"url": fallback_url})
+    return jsonify({"url": fallback_url})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000, threaded=True)
