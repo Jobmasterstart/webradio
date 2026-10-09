@@ -103,7 +103,7 @@ def home():
 
 @app.route('/stream_audio')
 def stream_audio():
-    # Traccia audio di test sicura su internet (SoundHelix) per evitare il blocco della barra del tempo
+    # Traccia audio di test sicura su internet (SoundHelix) per evitare blocchi
     fallback_url = "https://soundhelix.com"
     
     file_disponibili = ottieni_file_dropbox()
@@ -128,4 +128,4 @@ def stream_audio():
         return send_file(io.BytesIO(r.content), mimetype="audio/mpeg", as_attachment=False)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    app.run(host='0.0.0.0', port=10000, threaded=True)
