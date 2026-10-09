@@ -2,7 +2,7 @@ import os
 import random
 import requests
 import dropbox
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, redirect
 
 app = Flask(__name__)
 
@@ -18,7 +18,7 @@ def chiedi_all_ai_cosa_trasmettere(canzoni, spot):
     if not canzoni and not spot:
         return ""
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file da trasmettere tra questi brani: {canzoni} o questi spot: {spot}. Rispondi SOLO con il nome esatto del file, senza aggiungere altro testo."
+    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file da trasmettere tra questi brani: {canzoni} o questi spot: {spot}. Rispondi SOLO con il nome esatto del file."
     try:
         payload = {"inputs": prompt, "parameters": {"max_new_tokens": 50}}
         response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=4)
@@ -38,22 +38,38 @@ def ottieni_file_dropbox():
     try:
         dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
         
-        # Questa versione legge le cartelle 'Musica' e 'Spot' con la maiuscola nella ROOT principale che vedi a schermo
+        # 1. Prova a leggere le cartelle con la maiuscola nella ROOT principale
         try:
             for entry in dbx.files_list_folder('/Musica').entries:
-                if entry.name.lower().endswith('.mp3'):
-                    canzoni_trovate.append(entry.name)
-        except:
-            pass
-            
-        try:
+                if entry.name.lower().endswith('.mp3'): canzoni_trovate.append('/Musica/' + entry.name)
             for entry in dbx.files_list_folder('/Spot').entries:
-                if entry.name.lower().endswith('.mp3'):
-                    spot_trovati.append(entry.name)
+                if entry.name.lower().endswith('.mp3'): spot_trovati.append('/Spot/' + entry.name)
+            if canzoni_trovate or spot_trovati:
+                return canzoni_trovate, spot_trovati
         except:
             pass
-            
-        return canzoni_trovate, spot_trovati
+
+        # 2. Se fallisce, prova a leggere le cartelle in minuscolo nella ROOT
+        try:
+            for entry in dbx.files_list_folder('/musica').entries:
+                if entry.name.lower().endswith('.mp3'): canzoni_trovate.append('/musica/' + entry.name)
+            for entry in dbx.files_list_folder('/spot').entries:
+                if entry.name.lower().endswith('.mp3'): spot_trovati.append('/spot/' + entry.name)
+            if canzoni_trovate or spot_trovati:
+                return canzoni_trovate, spot_trovati
+        except:
+            pass
+
+        # 3. Paracadute: prova a leggere i file sfusi direttamente all'interno della cartella dell'app
+        try:
+            for entry in dbx.files_list_folder('').entries:
+                if entry.name.lower().endswith('.mp3'):
+                    canzoni_trovate.append('/' + entry.name)
+            return canzoni_trovate, spot_trovati
+        except:
+            pass
+
+        return [], []
     except:
         return [], []
 
@@ -76,7 +92,7 @@ def home():
             <h2>🎙️ Radio Fuori Onda Faenza</h2>
             <p>Regia Cloud Continuativa via IA</p>
             <audio id="radioPlayer" controls autoplay src="/get_next_track_url"></audio>
-            <div class="status" id="statusTrack">In onda ora: Regia Automatica</div>
+            <div class="status" id="statusTrack">In onda: Connessione in corso...</div>
         </div>
 
         <script>
@@ -97,12 +113,19 @@ def home():
                         player.src = "https://soundhelix.com";
                         player.load();
                         player.play();
-                        statusTrack.innerText = "In onda ora: Traccia di emergenza";
+                        statusTrack.innerText = "In onda: Traccia di emergenza internet";
                     });
             }
 
             player.onended = function() {
                 caricaTracciaSuccessiva();
+            };
+            
+            // Forza l'aggiornamento della scritta al primo avvio
+            player.onplay = function() {
+                if(statusTrack.innerText.includes("Connessione")) {
+                    statusTrack.innerText = "In onda ora: Regia Automatica Cloud";
+                }
             };
         </script>
     </body>
@@ -119,18 +142,22 @@ def get_next_track():
     if not canzoni and not spot:
         if 'get_next_track_url' in requests.path:
             return redirect(fallback_url)
-        return jsonify({"url": fallback_url, "name": "Traccia di test (Cartelle vuote o non trovate)"})
+        return jsonify({"url": fallback_url, "name": "Traccia di test (Aggiungi file MP3 su Dropbox)"})
         
     file_scelto = chiedi_all_ai_cosa_trasmettere(canzoni, spot)
-    cartella_percorso = "/Spot/" if file_scelto in spot else "/Musica/"
+    if not file_scelto:
+        file_scelto = random.choice(canzoni) if canzoni else random.choice(spot)
     
     try:
         dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        media_link = dbx.files_get_temporary_link(cartella_percorso + file_scelto)
+        media_link = dbx.files_get_temporary_link(file_scelto)
+        
+        # Estrae il nome pulito del file da mostrare sul sito
+        nome_pulito = file_scelto.split('/')[-1]
         
         if 'get_next_track_url' in requests.path:
             return redirect(media_link.link)
-        return jsonify({"url": media_link.link, "name": file_scelto})
+        return jsonify({"url": media_link.link, "name": nome_pulito})
     except:
         if 'get_next_track_url' in requests.path:
             return redirect(fallback_url)
