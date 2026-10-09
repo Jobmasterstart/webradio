@@ -6,7 +6,7 @@ from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
-# Recupero credenziali dalle variabili d'ambiente di Render
+# Recupero variabili d'ambiente da Render
 DBX_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
 DBX_KEY = os.environ.get("DROPBOX_APP_KEY")
 DBX_SECRET = os.environ.get("DROPBOX_APP_SECRET")
@@ -54,62 +54,39 @@ def home():
         <style>
             body { background: #121212; color: white; font-family: sans-serif; text-align: center; padding-top: 100px; }
             .card { background: #1e1e1e; padding: 40px; display: inline-block; border-radius: 15px; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-            .btn-play { background: #25d366; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 30px; cursor: pointer; font-weight: bold; margin-top: 20px; }
-            .btn-play:hover { background: #20ba59; }
-            .status { margin-top: 15px; font-size: 14px; color: #aaa; }
+            audio { margin-top: 25px; width: 320px; outline: none; }
+            .hint { font-size: 13px; color: #888; margin-top: 15px; }
         </style>
     </head>
     <body>
         <div class="card">
             <h2>🎙️ Radio Fuori Onda Faenza</h2>
             <p>Regia Cloud Continuativa via IA</p>
-            <button class="btn-play" id="playBtn" onclick="avviaRadio()">▶️ ASCOLTA ORA</button>
-            <div class="status" id="statusTxt">Pronto per lo streaming</div>
+            
+            <!-- Player nativo visibile con sblocco CORS del browser -->
+            <audio id="radioPlayer" controls autoplay src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"></audio>
+            
+            <div class="hint">Usa i controlli del lettore qui sopra per alzare il volume o mettere in pausa.</div>
         </div>
 
         <script>
-            var audioStream = new Audio();
-            var btn = document.getElementById('playBtn');
-            var statusTxt = document.getElementById('statusTxt');
-            var isPlaying = false;
-
-            function caricaEInizia() {
-                statusTxt.innerText = "Caricamento traccia audio in corso...";
+            var player = document.getElementById('radioPlayer');
+            
+            // Logica per agganciare la traccia successiva al termine della canzone
+            player.onended = function() {
                 fetch('/get_next_track')
                     .then(response => response.json())
                     .then(data => {
-                        statusTxt.innerText = "Riproduzione attiva.";
-                        audioStream.src = data.url;
-                        audioStream.load();
-                        audioStream.play().catch(e => {
-                            statusTxt.innerText = "Clicca di nuovo per sbloccare l'audio del browser.";
-                        });
+                        player.src = data.url;
+                        player.load();
+                        player.play();
                     })
                     .catch(err => {
-                        audioStream.src = "https://soundhelix.com";
-                        audioStream.play();
+                        // Fallback di sicurezza in streaming continuo
+                        player.src = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3";
+                        player.load();
+                        player.play();
                     });
-            }
-
-            function avviaRadio() {
-                if (!isPlaying) {
-                    isPlaying = true;
-                    btn.innerText = "⏸️ IN PAUSA";
-                    btn.style.background = "#ff3333";
-                    caricaEInizia();
-                } else {
-                    isPlaying = false;
-                    audioStream.pause();
-                    btn.innerText = "▶️ ASCOLTA ORA";
-                    btn.style.background = "#25d366";
-                    statusTxt.innerText = "Radio in pausa.";
-                }
-            }
-
-            audioStream.onended = function() {
-                if (isPlaying) {
-                    caricaEInizia();
-                }
             };
         </script>
     </body>
@@ -119,9 +96,22 @@ def home():
 
 @app.route('/get_next_track')
 def get_next_track():
-    # Link musicale di test protetto e sicuramente funzionante su internet
-    fallback_url = "https://soundhelix.com"
-    return jsonify({"url": fallback_url})
+    fallback_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+    file_disponibili = ottieni_file_dropbox()
+    
+    if not file_disponibili:
+        return jsonify({"url": fallback_url})
+        
+    file_scelto = chiedi_all_ai_cosa_trasmettere(file_disponibili)
+    if not file_scelto:
+        file_scelto = random.choice(file_disponibili)
+        
+    try:
+        dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
+        media_link = dbx.files_get_temporary_link('/' + file_scelto)
+        return jsonify({"url": media_link.link})
+    except:
+        return jsonify({"url": fallback_url})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000, threaded=True)
