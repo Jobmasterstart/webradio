@@ -9,7 +9,7 @@ import io
 
 app = Flask(__name__)
 
-# Configurazione client con gestione errori aziendale
+# Configurazione client con gestione errori
 try:
     openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     dbx = dropbox.Dropbox(
@@ -43,7 +43,6 @@ def analizza_brano_ibrido(entry):
 
     # TENTATIVO 1: Lettura dei metadati ID3 interni (TinyTag)
     try:
-        # Chiediamo a Dropbox solo i primi 300KB del file (sufficienti per leggere i tag ID3) senza sovraccaricare Render
         _, res = dbx.files_download_zip(entry.path_lower, range="bytes=0-300000")
         audio_buffer = io.BytesIO(res.content)
         tag = TinyTag.get(audio_buffer, image=False)
@@ -53,9 +52,9 @@ def analizza_brano_ibrido(entry):
         genere = tag.genre
         anno = tag.year
     except Exception:
-        pass # Se fallisce la lettura interna, passiamo serenamente al metodo 2
+        pass 
 
-    # TENTATIVO 2: Se i dati fondamentali mancano, interviene l'IA analizzando il nome del file
+    # TENTATIVO 2: Se i dati interni mancano, interviene l'IA sul nome del file
     if not titolo or not artista:
         try:
             prompt_analisi = (
@@ -90,9 +89,8 @@ def analizza_brano_ibrido(entry):
     }
 
 def scansiona_catalogo_dropbox():
-    """Esplora la cartella Dropbox e mappa tutti i brani presenti usando la logica ibrida"""
+    """Esplora la cartella Dropbox e mappa tutti i brani presenti"""
     try:
-        # NOTA: Assicurati che la cartella si chiami esattamente così o adatta la stringa (es: '/musica')
         risultato = dbx.files_list_folder('/musicaradio')
         catalogo = []
         for entry in risultato.entries:
@@ -163,7 +161,7 @@ def home():
                             document.getElementById('ai-reasoning').innerHTML = '<strong>🧠 Criterio di Selezione:</strong> ' + data.motivazione;
                             
                             audioPlayer.src = data.url_streaming;
-                            audioPlayer.play().catch(() => console.log("In attesa di interazione dell'utente per l'audio."));
+                            audioPlayer.play().catch(() => console.log("In attesa di interazione utente."));
                         } else {
                             document.getElementById('track-title').innerText = "Nessun brano utilizzabile su Dropbox.";
                         }
@@ -173,7 +171,6 @@ def home():
                     });
             }
 
-            // Transizione fluida e infinita: appena finisce un brano, parte il successivo scelto dall'IA
             audioPlayer.onended = caricaProssimaCanzone;
             window.onload = caricaProssimaCanzone;
         </script>
@@ -191,10 +188,23 @@ def regia_ibrida_prossimo():
         if not catalogo:
             return jsonify({"status": "error", "message": "Nessun file musicale trovato"}), 404
 
-        # Inviamo l'intero catalogo mappato (con tag interni o dedotti da IA) a GPT per la programmazione
         prompt_regia = (
             "Sei il Direttore di Programmazione Radiofonica di Radio Fuori Onda Faenza. "
             "Devi selezionare la traccia ideale anni 70/80/90, italiana o straniera, basandoti sulla fascia oraria corrente.\n\n"
             f"FASCIA ATTUALE: {fascia}\n\n"
-            f"CATALOGO BRANI DISPONIBILI (COMPRESO DI METADATI ID3/ANALIZZATI):\n{json.dumps(catalogo, indent=2)}\n\n"
+            f"CATALOGO BRANI DISPONIBILI:\n{json.dumps(catalogo, indent=2)}\n\n"
             "Scegli un brano. Rispondi RIGIDAMENTE con un oggetto JSON contenente il 'file_name' esatto scelto e una 'motivazione' artistica.\n"
+            "Esempio:\n{\"file_name\": \"traccia1.mp3\", \"motivazione\": \"Brano eccezionale per il pomeriggio, i metadati confermano essere un pezzo dance Anni 90 carico.\"}"
+        )
+
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": prompt_regia}]
+        )
+
+        risposta = json.loads(completion.choices.message.content)
+        file_selezionato = risposta.get("file_name")
+        motivazione = risposta.get("motivazione", "Scelta automatica basata sul mood orario.")
+
+        canzone_scelta = next((c for c in catalogo if c["file_name"] == file_selezionato), catalogo)
