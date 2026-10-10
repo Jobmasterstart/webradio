@@ -1,6 +1,6 @@
-Flask==3.0.3
-requests==2.31.0
-openai==1.14.3
-dropbox==11.36.0
-gunicorn==21.2.0
-tinytag==1.8.0
+Flask
+requests
+openai
+dropbox
+gunicorn
+tinytag
