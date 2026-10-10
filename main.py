@@ -56,7 +56,6 @@ def analizza_brano_con_ia(nome_file, path_file):
             "anno": dati_ia.get("anno") or "Vari"
         }
     except Exception:
-        # Salvataggio di emergenza se l'API fallisce
         return {
             "file_name": nome_file,
             "path": path_file,
@@ -67,9 +66,10 @@ def analizza_brano_con_ia(nome_file, path_file):
         }
 
 def scansiona_catalogo_dropbox():
-    """Esplora la cartella principale di Dropbox e indicizza tutti i brani MP3"""
+    """Esplora la cartella principale di Dropbox (App Folder vuota) e indicizza tutti i brani MP3"""
     try:
-        risultato = dbx.files_list_folder('/musicaradio')
+        # Usiamo le virgolette vuote per leggere direttamente dentro la cartella dedicata all'applicazione
+        risultato = dbx.files_list_folder('')
         catalogo = []
         for entry in risultato.entries:
             if entry.name.lower().endswith('.mp3'):
@@ -142,6 +142,7 @@ def home():
                             audioPlayer.play().catch(() => console.log("In attesa di interazione con la pagina."));
                         } else {
                             document.getElementById('track-title').innerText = "Nessun brano trovato su Dropbox.";
+                            document.getElementById('track-details').innerText = "-";
                         }
                     })
                     .catch(() => {
@@ -185,7 +186,7 @@ def regia_prossimo():
         file_selezionato = risposta.get("file_name")
         motivazione = risposta.get("motivazione", "Selezione automatica oraria.")
 
-        canzone_scelta = next((c for c in catalogo if c["file_name"] == file_selezionato), catalogo[0])
+        canzone_scelta = next((c for c in catalogo if c["file_name"] == file_selezionato), catalogo)
         media_info = dbx.files_get_temporary_link(canzone_scelta["path"])
 
         return jsonify({
