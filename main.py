@@ -1,63 +1,17 @@
 import os
-import random
 import requests
+from flask import Flask, render_template_string, jsonify
+from openai import OpenAI
 import dropbox
-from flask import Flask, render_template_string, jsonify, redirect
 
 app = Flask(__name__)
 
-# Recupero delle variabili d'ambiente configurate su Render
-DBX_TOKEN = os.environ.get("DROPBOX_REFRESH_TOKEN")
-DBX_KEY = os.environ.get("DROPBOX_APP_KEY")
-DBX_SECRET = os.environ.get("DROPBOX_APP_SECRET")
-HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
-
-HF_API_URL = "https://huggingface.co"
-
-def chiedi_all_ai_cosa_trasmettere(canzoni, spot):
-    if not canzoni and not spot:
-        return ""
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    prompt = f"Sei la regia di Radio Fuori Onda Faenza. Scegli un file da trasmettere tra questi brani musicali: {canzoni} o questi spot: {spot}. Rispondi SOLO con il nome esatto del file scelto, senza commenti o testi aggiuntivi."
-    try:
-        payload = {"inputs": prompt, "parameters": {"max_new_tokens": 50}}
-        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=4)
-        output = response.json()
-        if isinstance(output, list) and len(output) > 0 and "generated_text" in output:
-            scelta = output["generated_text"].replace(prompt, "").strip()
-            for f in (canzoni + spot):
-                if f in scelta:
-                    return f
-    except:
-        pass
-    return random.choice(canzoni) if canzoni else random.choice(spot)
-
-def ottieni_file_dropbox():
-    canzoni_trovate = []
-    spot_trovati = []
-    try:
-        # Connessione a Dropbox usando solo i permessi di lettura (Read-Only)
-        dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        
-        # Prova a leggere la cartella principale /Musica visibile a schermo
-        try:
-            for entry in dbx.files_list_folder('/Musica').entries:
-                if entry.name.lower().endswith('.mp3'):
-                    canzoni_trovate.append(entry.name)
-        except:
-            pass
-            
-        # Prova a leggere la cartella principale /Spot visibile a schermo
-        try:
-            for entry in dbx.files_list_folder('/Spot').entries:
-                if entry.name.lower().endswith('.mp3'):
-                    spot_trovati.append(entry.name)
-        except:
-            pass
-            
-        return canzoni_trovate, spot_trovati
-    except:
-        return [], []
+# Inizializzazione sicura dei client tramite le variabili d'ambiente di Render
+try:
+    openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    dbx = dropbox.Dropbox(os.environ.get("DROPBOX_ACCESS_TOKEN"))
+except Exception as e:
+    print(f"Errore di configurazione iniziale: {e}")
 
 @app.route('/')
 def home():
@@ -65,89 +19,84 @@ def home():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Radio Fuori Onda Faenza</title>
+        <title>Radio Fuori Onda Faenza - AI Radio</title>
         <style>
-            body { background: #121212; color: white; font-family: sans-serif; text-align: center; padding-top: 100px; }
-            .card { background: #1e1e1e; padding: 40px; display: inline-block; border-radius: 15px; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-            audio { margin-top: 25px; width: 320px; outline: none; }
-            .status { font-size: 14px; color: #25d366; margin-top: 10px; font-weight: bold; }
+            body { background: #121212; color: white; font-family: 'Segoe UI', sans-serif; text-align: center; padding-top: 50px; }
+            .container { background: #1e1e1e; padding: 30px; display: inline-block; border-radius: 15px; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); max-width: 500px; }
+            h1 { color: #25d366; margin-bottom: 5px; }
+            .status { font-size: 0.9em; color: #888; margin-bottom: 25px; }
+            .ai-box { background: #2a2a2a; border-left: 4px solid #00bcd4; padding: 15px; text-align: left; margin: 20px 0; border-radius: 4px; }
+            audio { width: 100%; margin-top: 15px; outline: none; }
+            .btn { background: #25d366; color: black; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; transition: 0.2s; }
+            .btn:hover { background: #20ba5a; }
         </style>
     </head>
     <body>
-        <div class="card">
-            <h2>🎙️ Radio Fuori Onda Faenza</h2>
-            <p>Regia Cloud Continuativa via IA</p>
+        <div class="container">
+            <h1>🎙️ Radio Fuori Onda Faenza</h1>
+            <div class="status">AI Station Engine Attivo</div>
             
-            <audio id="radioPlayer" controls autoplay src="/get_next_track_url"></audio>
+            <div class="ai-box">
+                <strong>💡 Ultimo Palinsesto AI:</strong>
+                <p id="ai-script">Generazione traccia o testo radiofonico in corso...</p>
+            </div>
+
+            <!-- Player per lo streaming o la traccia caricata -->
+            <audio controls id="radio-player">
+                <source src="" type="audio/mpeg">
+                Il tuo browser non supporta l'elemento audio.
+            </audio>
             
-            <div class="status" id="statusTrack">In onda: Sintonizzazione...</div>
+            <p><button class="btn" onclick="generaNuovoContenuto()">Forza Aggiornamento AI</button></p>
         </div>
 
         <script>
-            var player = document.getElementById('radioPlayer');
-            var statusTrack = document.getElementById('statusTrack');
-            
-            function caricaTracciaSuccessiva() {
-                statusTrack.innerText = "L'IA sta decidendo la prossima traccia...";
-                fetch('/get_next_track')
+            function generaNuovoContenuto() {
+                document.getElementById('ai-script').innerText = 'L\'IA sta elaborando il prossimo blocco radiofonico...';
+                fetch('/api/genera-palinsesto')
                     .then(response => response.json())
                     .then(data => {
-                        statusTrack.innerText = "In onda ora: " + data.name;
-                        player.src = data.url;
-                        player.load();
-                        player.play();
+                        document.getElementById('ai-script').innerText = data.testo || 'Contenuto aggiornato!';
+                        if(data.audio_url) {
+                            var player = document.getElementById('radio-player');
+                            player.src = data.audio_url;
+                            player.play();
+                        }
                     })
                     .catch(err => {
-                        player.src = "https://soundhelix.com";
-                        player.load();
-                        player.play();
-                        statusTrack.innerText = "In onda: Traccia di emergenza cloud";
+                        document.getElementById('ai-script').innerText = 'Errore durante la richiesta all\'IA.';
                     });
             }
-
-            player.onended = function() {
-                caricaTracciaSuccessiva();
-            };
-            
-            player.onplay = function() {
-                if(statusTrack.innerText.includes("Sintonizzazione")) {
-                    statusTrack.innerText = "In onda ora: Regia Automatica Attiva";
-                }
-            };
         </script>
     </body>
     </html>
     '''
     return render_template_string(html)
 
-@app.route('/get_next_track_url')
-@app.route('/get_next_track')
-def get_next_track():
-    fallback_url = "https://soundhelix.com"
-    canzoni, spot = ottieni_file_dropbox()
-    
-    if not canzoni and not spot:
-        if 'get_next_track_url' in requests.path:
-            return redirect(fallback_url)
-        return jsonify({"url": fallback_url, "name": "Traccia di test (Aggiungi file MP3 nelle cartelle!)"})
-        
-    file_scelto = chiedi_all_ai_cosa_trasmettere(canzoni, spot)
-    if not file_scelto:
-        file_scelto = random.choice(canzoni) if canzoni else random.choice(spot)
-        
-    percorso_completo = "/Spot/" if file_scelto in spot else "/Musica/"
-    
+@app.route('/api/genera-palinsesto', methods=['GET'])
+def genera_palinsesto():
     try:
-        dbx = dropbox.Dropbox(oauth2_refresh_token=DBX_TOKEN, app_key=DBX_KEY, app_secret=DBX_SECRET)
-        media_link = dbx.files_get_temporary_link(percorso_completo + file_scelto)
-        
-        if 'get_next_track_url' in requests.path:
-            return redirect(media_link.link)
-        return jsonify({"url": media_link.link, "name": file_scelto})
-    except:
-        if 'get_next_track_url' in requests.path:
-            return redirect(fallback_url)
-        return jsonify({"url": fallback_url, "name": "Traccia di emergenza"})
+        # 1. Chiamata all'IA per generare il testo del break radiofonico
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Sei il conduttore radiofonico di Radio Fuori Onda Faenza. Annuncia la musica in modo energico e locale."},
+                {"role": "user", "content": "Genera una breve introduzione di 30 secondi per il prossimo blocco musicale."}
+            ]
+        ]
+        testo_radio = completion.choices[0].message.content
+
+        # NOTA: Qui si può integrare la chiamata Text-to-Speech (TTS) e il successivo upload su Dropbox.
+        # Al momento restituiamo il testo generato per confermare che l'infrastruttura risponde.
+        return jsonify({
+            "status": "success",
+            "testo": testo_radio,
+            "audio_url": "" # Inserire qui il link diretto della traccia audio finale se salvata
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000, threaded=True)
+    # Usiamo la porta dinamica assegnata da Render o la 10000 di default
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
