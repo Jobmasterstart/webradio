@@ -1,1 +1,5 @@
-
+Flask==3.0.3
+requests==2.31.0
+openai==1.14.3
+dropbox==11.36.0
+gunicorn==21.2.0
